@@ -1,0 +1,249 @@
+install.packages("ggplot2")
+install.packages("dplyr")
+
+library(ggplot2)
+library(dplyr)
+
+#set the local working directory 
+setwd("C:/Users/Desislava/Desktop/dmanolova/dmanolova/")
+
+#all txt files used for the research
+speciesFiles <-list.files(path = ".", pattern ="*txt", full.names=TRUE)
+
+#creating a data frame
+all <-data.frame()
+for (fileFullPath in speciesFiles){
+  d <- read.csv(fileFullPath, sep = "\t", header = TRUE)
+  speciesType = tools::file_path_sans_ext(basename(fileFullPath))
+  d["species"] <- speciesType
+  all <- rbind(all, d) 
+}
+
+#calculating the exon length subtracting the end position of each of the exons from its start
+all["exonLength"]=all$end-all$start
+
+
+
+library(ggtranscript)
+library(tibble)
+
+
+
+#evolutionary reorder the species 
+speciesFullNames <- c(
+  "erpetoichthys_calabaricus"="Reedfish",
+  "danio_rerio" ="Zebrafish", 
+  "oncorhynchus_kisutch" ="Coho Salmon", 
+  "poecilia_reticulata" ="Guppy", 
+  "leptobrachium_leishanense" ="Leishan Spiny Toad",
+  "homo_sapiens" ="Human", 
+  "rhinopithecus_bieti" ="Black Snub-Nosed Monkey",   
+  "rhinolophus_ferrumequinum" ="Greater Horseshoe Bat",   
+  "balaenoptera_musculus" ="Blue Whale", 
+  "ovis_aries_rambouillet"="Sheep",   
+  "marmota_marmota_marmota" ="Alpine Marmot",  
+  "mus_musculus" ="House Mouse",
+  "chrysemys_picta_bellii" ="Painted Turtle",   
+  "podarcis_muralis" ="Common Wall Lizard",  
+  "laticauda_laticaudata" ="Blue-ringed Sea Krait", 
+  "coturnix_japonica" ="Japanese Quail", 
+  "aquila_chrysaetos_chrysaetos" ="Golden Eagle", 
+  "strigops_habroptila" ="Himalayan Monal"
+)
+
+#create a colum in the data frame called officialName
+all$officialName=""
+all$evolutionaryOrder=0
+for (i in seq(1,length(speciesFullNames))){
+  speciesName <- names(speciesFullNames[i])
+  speciesFullName <- speciesFullNames[[i]]
+  all[all$species == speciesName, ]$officialName = speciesFullNames[[i]]
+  all[all$species == speciesName, ]$evolutionaryOrder = -i
+}
+
+#create a data frame containing the sum of exon length and the exon count for each of the species
+exonLengthSumPerSpecies <-all %>% group_by(officialName,evolutionaryOrder) %>%
+  summarise(totalLength=sum(exonLength), exonCount=n())
+
+#simple statistical analysis of the total exon length             
+mean(exonLengthSumPerSpecies$totalLength)
+quantile(exonLengthSumPerSpecies$totalLength, probs = 0.10)
+quantile(exonLengthSumPerSpecies$totalLength, probs = 0.90)
+cor(exonLengthSumPerSpecies$totalLength, exonLengthSumPerSpecies$exonCount)
+summary(exonLengthSumPerSpecies$totalLength)
+
+
+#simple statistical analysis of the exon cout 
+mean(exonLengthSumPerSpecies$exonCount)
+summary(exonLengthSumPerSpecies$exonCount)
+quantile(exonLengthSumPerSpecies$exonCount, probs = 0.10)
+quantile(exonLengthSumPerSpecies$exonCount, probs = 0.90)
+
+
+#ggplot representing the sum of exon lengths in each of the speacies 
+ggplot(exonLengthSumPerSpecies, aes(y=reorder(officialName, evolutionaryOrder), x=totalLength)) +
+  geom_bar(stat="identity", color="black", fill="steelblue") +
+  labs(y= "Species", x = "Total exons length (base pairs)", title = "Sum of all exons length in different species") + theme_bw()
+ggsave("Plots/Sum of all exons lengths in different species.png")
+
+
+#ggplot illustrating the number of exons for each of the species 
+ggplot(exonLengthSumPerSpecies, aes(y=reorder(officialName, evolutionaryOrder), x=exonCount)) +
+  geom_bar(stat="identity", color="black", fill="steelblue") +
+  labs(y= "Species", x = "Count of Exons", title="Exons count per species") + theme_bw()
+ggsave("Plots/exon_count_pre_species.png") 
+
+
+#create data a data frame containing the start and the end of the first exon, and the start and the end of the last exon 
+exonMinMaxIndexPerSpecies <- all %>%
+  group_by(officialName, evolutionaryOrder) %>%
+  summarise_at(vars(start, end), list(min = min, max = max))
+
+
+#calculating the actuall APC gene size (maxEndToMinStart) for each of the species by subtracting the start of he first exon from the end of the last exon 
+exonMinMaxIndexPerSpecies["maxEndToMinStart"] <- exonMinMaxIndexPerSpecies$end_max - exonMinMaxIndexPerSpecies$start_min
+
+#simple statisical analysis 
+mean(exonMinMaxIndexPerSpecies$maxEndToMinStart)
+summary(exonMinMaxIndexPerSpecies$maxEndToMinStart)
+sd(exonMinMaxIndexPerSpecies$maxEndToMinStart)
+quantile(exonMinMaxIndexPerSpecies$maxEndToMinStart, probs = 0.10)
+quantile(exonMinMaxIndexPerSpecies$maxEndToMinStart, probs = 0.90)
+
+#ggplot with the overall lenght of the APC gene in every species 
+ggplot(exonMinMaxIndexPerSpecies, aes(y=reorder(officialName, evolutionaryOrder), x=maxEndToMinStart)) +
+  geom_bar(stat="identity", color="black", fill="steelblue") +
+  labs(y= "Species", x = "Distance (base pairs)", title="Gene Length") + theme_bw()
+ggsave("Plots/length_from_start_exon1_to_end_last_exon.png")  
+
+
+
+all <- all[order(all$species, all$start),]
+# Get the value of the previous exon 
+all["prevExonEnd"]=lag(all$end)
+# Set the rows with smallest start value to have NA for prevExonEnd, because the previous line contains in effect the exons from another species 
+all[all$start %in% exonMinMaxIndexPerSpecies$start_min,]$prevExonEnd <- NA
+# This is the intron between the current exon and the one before it
+all["intronLength"]<- all$start-all$prevExonEnd
+
+
+#New package/ not working with the university cluster 
+install.packages("tidyr")
+library(tidyr)
+
+#Bioconducter and BiocManager was installed to operacte with ggtranscript 
+library(magrittr)
+library(ggtranscript)
+library(rtracklayer)
+
+#ggplot - intron/exon composition plot for each of the species 
+all["stringStrand"] <- "+"
+all[all$strand == -1, ]$stringStrand <- "-"
+speciesNames=unique(all$species)  
+for (species in speciesNames) {
+  filter = as_tibble(all[all$species == species, ])
+  plot <- filter %>%
+    ggplot(aes(
+      xstart = start,
+      xend = end,
+      y = officialName
+    )) +
+    geom_range(
+      aes(fill = species)
+    ) +
+    geom_intron(
+      data = to_intron(filter, "species"),
+      aes(strand = stringStrand)
+    ) +
+    labs(y= "Species", x = "Gene lengh (base pairs)", title=paste0("The exon and intron location" , species)) +
+    labs(fill = "Species")
+  
+  ggsave(paste0("Plots/", species, "_intron_exon.png"))  
+}
+
+
+#creating a list data structure 
+plot_list <- list()
+for (i in seq(1,length(speciesFullNames))){
+  speciesName = speciesFullNames[[i]]
+  filter = as_tibble(all[all$officialName == speciesName, ])
+  multiplier = 1
+  minSpeciesStartPosition = min(filter$start)
+  if (all(all[all$officialName == speciesName,]$strand == -1)) {
+    multiplier = -1
+    minSpeciesStartPosition = -max(filter$end)
+  }
+  filter$start = filter$start * multiplier
+  filter$end = filter$end * multiplier
+  filter$stringStrand = "+"
+  plot <- filter %>%
+    ggplot(aes(
+      xstart = start ,
+      xend = end ,
+      y = officialName
+    )) +
+    geom_range(
+      aes(fill = species)
+    ) +
+    geom_intron(
+      data = to_intron(filter, "species"),
+      aes(strand = stringStrand)
+    ) +
+    labs(y= "Species", x = "DNK Index") +
+    theme(legend.position = "none", 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank(),
+          axis.text.x = element_blank(),
+          axis.ticks.x = element_blank()) +
+    xlim(minSpeciesStartPosition, minSpeciesStartPosition + maxExonSequenceLength)
+  
+  plot_list[[i]] = plot
+}
+
+install.packages("ggpubr")
+library(ggpubr)
+install.packages("patchwork")
+library(patchwork)
+
+nrow = length(plot_list)
+myplot <- patchwork::wrap_plots(plot_list, nrow=nrow)+ 
+  plot_annotation(
+    title = 'APC gene structure across the species',
+  ) & theme(axis.text.y = element_text(size = 20),
+            plot.title = element_text(size = 36), 
+            plot.subtitle = element_text(size = 25))
+
+ggsave("Plots/AllSpeciesExonInteron.png", myplot,  width = 100,  height = 3 * nrow,  units = "cm")
+
+
+
+#Welch t-test 
+install.packages('broom')
+library('broom')
+
+all_clean <- all[!is.na(all$intronLength), ]
+all_clean['order'] <- all_clean['evolutionaryOrder']*1
+
+list_of_order_values <- sort(unique(all_clean$order), decreasing=FALSE)
+
+for (k in head(list_of_order_values,-1)){
+  print(k)
+  set_1_and_set_2 <- bind_rows(filter(all_clean, order == k), filter(all_clean, order == k+1))
+  if (k == 1){
+    t_test_results <- set_1_and_set_2 %>% group_by(species) %>% do(tidy(t.test(intronLength ~ species, data = set_1_and_set_2, var.equal = TRUE)))
+    t_test_results['species_test'] <- paste(as.character(unique(set_1_and_set_2$species)[1]), " and ", as.character(unique(set_1_and_set_2$species)[2]), " with order ", k, " and ", k+1, ".")
+  } else {
+    temp_tbl <- set_1_and_set_2 %>% group_by(species) %>% do(tidy(t.test(intronLength ~ species, data = set_1_and_set_2, var.equal = TRUE)))
+    temp_tbl['species_test'] <- paste(as.character(unique(set_1_and_set_2$species)[1]), " and ", as.character(unique(set_1_and_set_2$species)[2]), " with order ", k, " and ", k+1, ".")
+    t_test_results <- bind_rows(t_test_results, temp_tbl)
+  }
+  print(t.test(intronLength ~ species, data = set_1_and_set_2, var.equal = TRUE)) 
+}
+
+
+#summarise the t-test outcomes
+install.packages('writexl')
+library("writexl")
+
+write_xlsx(t_test_results, "D:/t_test_results.xlsx")
+t.test(intronLength ~ species, data = set_1_and_set_2, var.equal = TRUE)
