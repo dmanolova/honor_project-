@@ -3,14 +3,17 @@ install.packages("dplyr")
 
 library(ggplot2)
 library(dplyr)
+library(ggtranscript)
+library(tibble)
+
 
 #set the local working directory 
 setwd("C:/Users/Desislava/Desktop/dmanolova/dmanolova/")
 
-#all txt files used for the research
+#Get all txt files used for the research
 speciesFiles <-list.files(path = ".", pattern ="*txt", full.names=TRUE)
 
-#creating a data frame
+# Create a single data frame from the data from all the txt files
 all <-data.frame()
 for (fileFullPath in speciesFiles){
   d <- read.csv(fileFullPath, sep = "\t", header = TRUE)
@@ -19,17 +22,10 @@ for (fileFullPath in speciesFiles){
   all <- rbind(all, d) 
 }
 
-#calculating the exon length subtracting the end position of each of the exons from its start
+# Calculate the exon length by subtracting the end position of each of the exons from its start
 all["exonLength"]=all$end-all$start
 
-
-
-library(ggtranscript)
-library(tibble)
-
-
-
-#evolutionary reorder the species 
+# Pre-define the evolutionary reorder the species and their full names
 speciesFullNames <- c(
   "erpetoichthys_calabaricus"="Reedfish",
   "danio_rerio" ="Zebrafish", 
@@ -51,7 +47,7 @@ speciesFullNames <- c(
   "strigops_habroptila" ="Himalayan Monal"
 )
 
-#create a colum in the data frame called officialName
+# Add the evolutionary order and species name to the "all" data frame
 all$officialName=""
 all$evolutionaryOrder=0
 for (i in seq(1,length(speciesFullNames))){
@@ -61,62 +57,55 @@ for (i in seq(1,length(speciesFullNames))){
   all[all$species == speciesName, ]$evolutionaryOrder = -i
 }
 
-#create a data frame containing the sum of exon length and the exon count for each of the species
+# Create an aggregated data frame containing the sum of exon length and the exon count for each of the species
 exonLengthSumPerSpecies <-all %>% group_by(officialName,evolutionaryOrder) %>%
   summarise(totalLength=sum(exonLength), exonCount=n())
 
-#simple statistical analysis of the total exon length             
+# Simple statistical analysis of the total exon length              
 mean(exonLengthSumPerSpecies$totalLength)
 quantile(exonLengthSumPerSpecies$totalLength, probs = 0.10)
 quantile(exonLengthSumPerSpecies$totalLength, probs = 0.90)
 cor(exonLengthSumPerSpecies$totalLength, exonLengthSumPerSpecies$exonCount)
 summary(exonLengthSumPerSpecies$totalLength)
 
-
-#simple statistical analysis of the exon cout 
+# Simple statistical analysis of the exon count 
 mean(exonLengthSumPerSpecies$exonCount)
 summary(exonLengthSumPerSpecies$exonCount)
 quantile(exonLengthSumPerSpecies$exonCount, probs = 0.10)
 quantile(exonLengthSumPerSpecies$exonCount, probs = 0.90)
 
-
-#ggplot representing the sum of exon lengths in each of the speacies 
+# Plot the sum of exon lengths per species 
 ggplot(exonLengthSumPerSpecies, aes(y=reorder(officialName, evolutionaryOrder), x=totalLength)) +
   geom_bar(stat="identity", color="black", fill="steelblue") +
   labs(y= "Species", x = "Total exons length (base pairs)", title = "Sum of all exons length in different species") + theme_bw()
 ggsave("Plots/Sum of all exons lengths in different species.png")
 
-
-#ggplot illustrating the number of exons for each of the species 
+# Plot the number of exons per species 
 ggplot(exonLengthSumPerSpecies, aes(y=reorder(officialName, evolutionaryOrder), x=exonCount)) +
   geom_bar(stat="identity", color="black", fill="steelblue") +
   labs(y= "Species", x = "Count of Exons", title="Exons count per species") + theme_bw()
 ggsave("Plots/exon_count_pre_species.png") 
 
-
-#create data a data frame containing the start and the end of the first exon, and the start and the end of the last exon 
+# Create an aggregated data frame, containing the start index of the first exon and end index of the last exon in a species 
 exonMinMaxIndexPerSpecies <- all %>%
   group_by(officialName, evolutionaryOrder) %>%
   summarise_at(vars(start, end), list(min = min, max = max))
 
-
-#calculating the actuall APC gene size (maxEndToMinStart) for each of the species by subtracting the start of he first exon from the end of the last exon 
+# Calculate the actual APC gene size (maxEndToMinStart) for each of the species by subtracting the start of he first exon from the end of the last exon 
 exonMinMaxIndexPerSpecies["maxEndToMinStart"] <- exonMinMaxIndexPerSpecies$end_max - exonMinMaxIndexPerSpecies$start_min
 
-#simple statisical analysis 
+# Simple statistical analysis on the APC gene size
 mean(exonMinMaxIndexPerSpecies$maxEndToMinStart)
 summary(exonMinMaxIndexPerSpecies$maxEndToMinStart)
 sd(exonMinMaxIndexPerSpecies$maxEndToMinStart)
 quantile(exonMinMaxIndexPerSpecies$maxEndToMinStart, probs = 0.10)
 quantile(exonMinMaxIndexPerSpecies$maxEndToMinStart, probs = 0.90)
 
-#ggplot with the overall lenght of the APC gene in every species 
+# Plot the overall length of the APC gene per species 
 ggplot(exonMinMaxIndexPerSpecies, aes(y=reorder(officialName, evolutionaryOrder), x=maxEndToMinStart)) +
   geom_bar(stat="identity", color="black", fill="steelblue") +
   labs(y= "Species", x = "Distance (base pairs)", title="Gene Length") + theme_bw()
 ggsave("Plots/length_from_start_exon1_to_end_last_exon.png")  
-
-
 
 all <- all[order(all$species, all$start),]
 # Get the value of the previous exon 
@@ -126,22 +115,23 @@ all[all$start %in% exonMinMaxIndexPerSpecies$start_min,]$prevExonEnd <- NA
 # This is the intron between the current exon and the one before it
 all["intronLength"]<- all$start-all$prevExonEnd
 
-
 #New package/ not working with the university cluster 
 install.packages("tidyr")
 library(tidyr)
 
-#Bioconducter and BiocManager was installed to operacte with ggtranscript 
+# Bioconducter and BiocManager to operate with ggtranscript 
 library(magrittr)
 library(ggtranscript)
 library(rtracklayer)
 
-#ggplot - intron/exon composition plot for each of the species 
+# Create separate plots for the intron and extron locations per species 
 all["stringStrand"] <- "+"
 all[all$strand == -1, ]$stringStrand <- "-"
 speciesNames=unique(all$species)  
 for (species in speciesNames) {
+  # Filter the data to a particular species
   filter = as_tibble(all[all$species == species, ])
+  # Plot introns and extrons per species
   plot <- filter %>%
     ggplot(aes(
       xstart = start,
@@ -155,18 +145,21 @@ for (species in speciesNames) {
       data = to_intron(filter, "species"),
       aes(strand = stringStrand)
     ) +
-    labs(y= "Species", x = "Gene lengh (base pairs)", title=paste0("The exon and intron location" , species)) +
+    labs(y= "Species", x = "Gene length (base pairs)", title=paste0("The exon and intron location" , species)) +
     labs(fill = "Species")
   
   ggsave(paste0("Plots/", species, "_intron_exon.png"))  
 }
 
-
-#creating a list data structure 
+# Create an empty list which will contain all plots 
 plot_list <- list()
 for (i in seq(1,length(speciesFullNames))){
   speciesName = speciesFullNames[[i]]
   filter = as_tibble(all[all$officialName == speciesName, ])
+  
+  # The start and end positions can be inverted depending on the strand (which can be either "+" or "-")
+  # When the strand is negative, we multiply the start and end to align the plotting 
+  # Note: This does not affect the original data, since we work with a copy per species 
   multiplier = 1
   minSpeciesStartPosition = min(filter$start)
   if (all(all[all$officialName == speciesName,]$strand == -1)) {
@@ -176,6 +169,8 @@ for (i in seq(1,length(speciesFullNames))){
   filter$start = filter$start * multiplier
   filter$end = filter$end * multiplier
   filter$stringStrand = "+"
+  
+  # Create a plot for with intron and extrons per species
   plot <- filter %>%
     ggplot(aes(
       xstart = start ,
@@ -195,8 +190,11 @@ for (i in seq(1,length(speciesFullNames))){
           axis.title.x = element_blank(),
           axis.text.x = element_blank(),
           axis.ticks.x = element_blank()) +
+    # Limit the start and end position of the particular plot, so all the different species can be combined in one large plot
+    # Otherwise, the species length can be quite varied, which leads to squished data
     xlim(minSpeciesStartPosition, minSpeciesStartPosition + maxExonSequenceLength)
-  
+
+  # Add the current plot to the list of plots  
   plot_list[[i]] = plot
 }
 
@@ -206,6 +204,7 @@ install.packages("patchwork")
 library(patchwork)
 
 nrow = length(plot_list)
+# Combine the previously created list of plots in one large plot, where they can be easily compared 
 myplot <- patchwork::wrap_plots(plot_list, nrow=nrow)+ 
   plot_annotation(
     title = 'APC gene structure across the species',
@@ -215,9 +214,7 @@ myplot <- patchwork::wrap_plots(plot_list, nrow=nrow)+
 
 ggsave("Plots/AllSpeciesExonInteron.png", myplot,  width = 100,  height = 3 * nrow,  units = "cm")
 
-
-
-#Welch t-test 
+# Welch t-test 
 install.packages('broom')
 library('broom')
 
@@ -240,8 +237,7 @@ for (k in head(list_of_order_values,-1)){
   print(t.test(intronLength ~ species, data = set_1_and_set_2, var.equal = TRUE)) 
 }
 
-
-#summarise the t-test outcomes
+# Summarise the t-test outcomes
 install.packages('writexl')
 library("writexl")
 
